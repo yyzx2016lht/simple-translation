@@ -7,10 +7,11 @@ from PySide6.QtWidgets import (
     QLabel, QPushButton, QComboBox, QTextEdit, QFrame, 
     QSplitter, QMessageBox, QStatusBar, QToolBar
 )
-
+# 在 d:\mtranserver\translationUI\ui\main_window.py 中修改导入
+from ui.polish import AIPolishWindow  # 替换之前的导入
 from config import LANGUAGES, DEFAULT_SOURCE_LANG, DEFAULT_TARGET_LANG
 from worker import TranslateWorker
-from ui.polish_window import AIPolishWindow
+
 
 class TranslatorApp(QMainWindow):
     def __init__(self):
