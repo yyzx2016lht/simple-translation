@@ -5,10 +5,9 @@ from PySide6.QtGui import QFont, QAction
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QLabel, QPushButton, QComboBox, QTextEdit, QFrame, 
-    QSplitter, QMessageBox, QStatusBar, QToolBar
+    QSplitter, QMessageBox, QStatusBar, QToolBar, QStackedWidget
 )
-# 在 d:\mtranserver\translationUI\ui\main_window.py 中修改导入
-from ui.polish import AIPolishWindow  # 替换之前的导入
+from ui.polish.window import AIPolishWidget  # 使用新类名
 from config import LANGUAGES, DEFAULT_SOURCE_LANG, DEFAULT_TARGET_LANG
 from worker import TranslateWorker
 
@@ -33,10 +32,15 @@ class TranslatorApp(QMainWindow):
         about_action.triggered.connect(self.showAbout)
         toolbar.addAction(about_action)
         
-        # AI润色按钮
-        polish_action = QAction("AI润色", self)
-        polish_action.triggered.connect(self.openAIPolish)
-        toolbar.addAction(polish_action)
+        # 创建页面切换按钮
+        self.translate_action = QAction("文本翻译", self)
+        self.translate_action.triggered.connect(self.showTranslatePage)
+        toolbar.addAction(self.translate_action)
+        
+        # AI润色按钮修改为切换页面
+        self.polish_action = QAction("AI润色", self)
+        self.polish_action.triggered.connect(self.showPolishPage)
+        toolbar.addAction(self.polish_action)
         
         self.addToolBar(toolbar)
         
@@ -53,8 +57,35 @@ class TranslatorApp(QMainWindow):
         main_layout = QVBoxLayout(main_widget)
         main_layout.setContentsMargins(10, 10, 10, 10)
         
+        # 创建堆叠组件
+        self.stack = QStackedWidget()
+        
+        # 创建翻译页面
+        self.translate_page = QWidget()
+        self.setupTranslatePage(self.translate_page)
+        
+        # 创建AI润色页面
+        self.polish_page = None  # 初始为None，第一次访问时创建
+        
+        # 添加翻译页面到堆叠组件
+        self.stack.addWidget(self.translate_page)
+        
+        # 添加堆叠组件到主布局
+        main_layout.addWidget(self.stack)
+        
+        # 默认显示翻译页面
+        self.showTranslatePage()
+        
+        # 设置线程池
+        self.threadpool = QThreadPool()
+        
+    def setupTranslatePage(self, page):
+        """设置翻译页面"""
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        
         # --- 语言选择部分 ---
-        self._setupLanguageControls(main_layout)
+        self._setupLanguageControls(page_layout)
         
         # --- 创建分割器 ---
         splitter = QSplitter(Qt.Vertical)
@@ -76,8 +107,8 @@ class TranslatorApp(QMainWindow):
         translate_layout.addWidget(self.translate_btn)
         translate_layout.addStretch()
         
-        main_layout.addWidget(splitter)
-        main_layout.addWidget(translate_container)
+        page_layout.addWidget(splitter)
+        page_layout.addWidget(translate_container)
         
         # --- 输出区域 ---
         self._setupOutputArea(splitter)
@@ -85,12 +116,54 @@ class TranslatorApp(QMainWindow):
         # 设置分割器初始大小
         splitter.setSizes([int(self.height() * 0.5), int(self.height() * 0.5)])
         
-        # 设置线程池
-        self.threadpool = QThreadPool()
-        
         # 设置快捷键
         self.input_text.installEventFilter(self)
+    
+    def setupPolishPage(self):
+        """懒加载并设置AI润色页面"""
+        # 如果润色页面已经存在，直接返回
+        if self.polish_page is not None:
+            return
+            
+        # 获取当前翻译结果作为初始文本
+        initial_text = ""
+        if hasattr(self, 'output_text'):
+            initial_text = self.output_text.toPlainText()
+            if initial_text == "翻译中...":
+                initial_text = ""
         
+        # 创建润色组件
+        self.polish_page = AIPolishWidget(self, initial_text)
+        
+        # 添加到堆叠组件
+        self.stack.addWidget(self.polish_page)
+    
+    def showTranslatePage(self):
+        """显示翻译页面"""
+        self.stack.setCurrentWidget(self.translate_page)
+        self.translate_action.setEnabled(False)
+        self.polish_action.setEnabled(True)
+        self.setWindowTitle("现代翻译器 - 文本翻译")
+        
+    def showPolishPage(self):
+        """显示AI润色页面"""
+        # 确保润色页面已设置
+        self.setupPolishPage()
+        
+        # 更新润色页面的输入文本
+        if hasattr(self, 'output_text') and hasattr(self.polish_page, 'input_text'):
+            output_text = self.output_text.toPlainText()
+            if output_text and output_text != "翻译中...":
+                self.polish_page.input_text.setPlainText(output_text)
+                
+        # 显示润色页面
+        self.stack.setCurrentWidget(self.polish_page)
+        self.translate_action.setEnabled(True)
+        self.polish_action.setEnabled(False)
+        self.setWindowTitle("现代翻译器 - AI润色")
+    
+    # 删除原来的openAIPolish方法，已由showPolishPage替代
+    
     def _setupLanguageControls(self, main_layout):
         """设置语言选择控件"""
         lang_frame = QFrame()
@@ -332,12 +405,3 @@ class TranslatorApp(QMainWindow):
                          "现代翻译器 v2.0\n\n"
                          "一个简单而美观的翻译应用。\n"
                          "使用PySide6(Qt)构建，支持多种语言翻译。")
-                         
-    def openAIPolish(self):
-        """打开AI润色窗口"""
-        # 获取当前输出框中的文本作为初始文本
-        initial_text = self.output_text.toPlainText()
-        
-        # 创建并显示AI润色窗口
-        polish_window = AIPolishWindow(self, initial_text)
-        polish_window.exec()

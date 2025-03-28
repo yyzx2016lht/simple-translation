@@ -1,4 +1,4 @@
-"""AI润色窗口"""
+"""AI润色窗口组件"""
 import sys
 import json
 import time
@@ -10,7 +10,7 @@ import subprocess
 from PySide6.QtCore import Qt, QTimer, Signal, QObject
 from PySide6.QtGui import QFont, QTextCursor, QTextOption
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit, 
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit, 
     QPushButton, QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox,
     QCheckBox, QFormLayout, QMessageBox, QProgressBar,
     QGroupBox, QSplitter, QApplication, QPlainTextEdit
@@ -38,9 +38,9 @@ class PolishSignals(QObject):
     error = Signal(str)        # 错误信号
     reset_stop_button = Signal()  # 重置停止按钮信号
 
-class AIPolishWindow(QDialog):
+class AIPolishWidget(QWidget):  # 改名并修改父类
     def __init__(self, parent=None, initial_text=""):
-        super().__init__(parent)
+        super().__init__(parent)  # 修改父类初始化
         self.parent = parent
         self.initial_text = initial_text
         self.translator = None
@@ -583,29 +583,11 @@ class AIPolishWindow(QDialog):
                 # 假设父窗口有output_text属性
                 self.parent.output_text.setText(text_to_apply)
                 QMessageBox.information(self, "提示", "已应用到主窗口")
-                self.accept()  # 关闭对话框
+                # 切换回翻译页面
+                if hasattr(self.parent, 'showTranslatePage'):
+                    self.parent.showTranslatePage()
             except AttributeError:
                 QMessageBox.warning(self, "错误", "无法应用到主窗口")
-    
-    def closeEvent(self, event):
-        """关闭窗口时处理"""
-        if self.is_translating:
-            # 确保翻译线程停止
-            self.is_translating = False
-            # 获取当前模型
-            current_model = self.model_combo.currentText()
-            # 尝试停止模型
-            try:
-                import subprocess
-                subprocess.run(["ollama", "stop", current_model], 
-                            check=False, 
-                            stdout=subprocess.DEVNULL, 
-                            stderr=subprocess.DEVNULL)
-            except:
-                pass
-        
-        # 继续关闭事件
-        event.accept()
 
     # 添加处理目标语言变化的函数
     def onTargetLangChanged(self, index):
@@ -708,7 +690,7 @@ def get_installed_ollama_models():
             # 可以添加其他需要排除的模型
         ]
             
-        # 提取模型名称（第一列）
+        # 提取模型名称（第一列）:
         models = []
         for line in lines[1:]:  # 跳过标题行
             parts = line.split()

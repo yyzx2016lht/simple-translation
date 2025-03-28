@@ -1,13 +1,14 @@
-"""AI润色窗口主类"""
+"""AI润色窗口组件"""
 import sys
 import threading
+import re  # 添加用于文本处理
 from PySide6.QtCore import Qt, QTimer, QObject, QMetaObject
 from PySide6.QtGui import QFont, QTextCursor, QTextOption
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit, 
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit, 
     QPushButton, QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox,
     QCheckBox, QFormLayout, QMessageBox, QGroupBox, QSplitter, 
-    QApplication, QPlainTextEdit
+    QApplication, QPlainTextEdit, QSizePolicy
 )
 
 from ollama_translator import OllamaTranslator
@@ -18,8 +19,8 @@ from .utils import (
     load_saved_models, save_models, process_thinking_tags
 )
 
-class AIPolishWindow(QDialog):
-    """AI润色/翻译窗口"""
+class AIPolishWidget(QWidget):  # 修改为QWidget
+    """AI润色/翻译组件"""
     def __init__(self, parent=None, initial_text=""):
         super().__init__(parent)
         self.parent = parent
@@ -41,70 +42,80 @@ class AIPolishWindow(QDialog):
         # 初始化输入文本
         if initial_text:
             self.input_text.setPlainText(initial_text)
+            
+        # 设置尺寸策略，允许组件在两个方向上扩展
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
     
     def initUI(self):
         """初始化用户界面"""
-        self.setWindowTitle("AI润色/翻译")
-        self.setMinimumSize(800, 600)
-        
         # 主布局
         main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(5)
         
         # 创建分割器
         splitter = QSplitter(Qt.Vertical)
+        splitter.setChildrenCollapsible(False)
         
         # 顶部控制区域
         control_group = QGroupBox("模型与参数设置")
         control_layout = QVBoxLayout(control_group)
+        control_layout.setContentsMargins(10, 15, 10, 10)
         
-        # 第一行：模型选择和添加
+        # 模型选择行
         model_layout = QHBoxLayout()
+        model_layout.addWidget(QLabel("模       型:"))
         
-        # 模型选择
         self.model_combo = QComboBox()
-        self.model_combo.setMinimumWidth(200)
+        model_layout.addWidget(self.model_combo, 1)
         
-        # 添加新模型
         self.new_model_input = QLineEdit()
         self.new_model_input.setPlaceholderText("输入新模型名称...")
-        
-        add_model_btn = QPushButton("添加模型")
-        add_model_btn.clicked.connect(self.addNewModel)
-        
-        model_layout.addWidget(QLabel("选择模型:"))
-        model_layout.addWidget(self.model_combo, 1)
         model_layout.addWidget(self.new_model_input, 1)
+        
+        add_model_btn = QPushButton("添加")
+        add_model_btn.clicked.connect(self.addNewModel)
         model_layout.addWidget(add_model_btn)
         
         control_layout.addLayout(model_layout)
         
-        # 第二行：参数设置
-        params_layout = QFormLayout()
+        # 语言与参数行
+        params_layout = QHBoxLayout()
         
-        # 语言选择
+        # 左侧 - 语言设置
+        lang_layout = QFormLayout()
+        
+        # 源语言
         self.source_lang_combo = QComboBox()
         for code, name in LANGUAGE_MAPPING.items():
             self.source_lang_combo.addItem(f"{name}（{code}）", code)
         
-        # 设置默认源语言为自动检测
+        # 设置默认源语言
         for i in range(self.source_lang_combo.count()):
             if self.source_lang_combo.itemData(i) == "Auto":
                 self.source_lang_combo.setCurrentIndex(i)
                 break
         
-        # 目标语言下拉框
+        # 目标语言
         self.target_lang_combo = QComboBox()
         for code, name in LANGUAGE_MAPPING.items():
-            if code != "Auto":  # 目标语言不包含自动检测
+            if code != "Auto":
                 self.target_lang_combo.addItem(f"{name}（{code}）", code)
         
         # 添加自定义选项
         self.target_lang_combo.addItem("自定义语言...", "custom")
         
-        # 自定义语言输入框（初始隐藏）
+        lang_layout.addRow("源  语  言:", self.source_lang_combo)
+        lang_layout.addRow("目标语言:", self.target_lang_combo)
+        
+        # 自定义语言输入框
         self.custom_lang_input = QLineEdit()
-        self.custom_lang_input.setPlaceholderText("输入目标语言名称（如：德语、French等）")
+        self.custom_lang_input.setPlaceholderText("自定义语言名称")
         self.custom_lang_input.setVisible(False)
+        lang_layout.addRow("", self.custom_lang_input)
+        
+        # 右侧 - 其他参数
+        other_layout = QFormLayout()
         
         # 温度参数
         self.temperature_spin = QDoubleSpinBox()
@@ -112,15 +123,16 @@ class AIPolishWindow(QDialog):
         self.temperature_spin.setSingleStep(0.1)
         self.temperature_spin.setValue(0.7)
         
-        # 是否流式输出
+        # 流式输出
         self.stream_checkbox = QCheckBox("启用")
         self.stream_checkbox.setChecked(True)
         
-        params_layout.addRow("源语言:", self.source_lang_combo)
-        params_layout.addRow("目标语言:", self.target_lang_combo)
-        params_layout.addRow("", self.custom_lang_input)  # 空标签使其与目标语言对齐
-        params_layout.addRow("温度:", self.temperature_spin)
-        params_layout.addRow("流式输出:", self.stream_checkbox)
+        other_layout.addRow("温度:", self.temperature_spin)
+        other_layout.addRow("流式输出:", self.stream_checkbox)
+        
+        # 平均分配左右两列
+        params_layout.addLayout(lang_layout, 1)
+        params_layout.addLayout(other_layout, 1)
         
         control_layout.addLayout(params_layout)
         
@@ -145,7 +157,6 @@ class AIPolishWindow(QDialog):
         self.stop_btn.clicked.connect(self.stopTranslation)
         self.stop_btn.setEnabled(False)
         
-        # 粘贴按钮
         paste_btn = QPushButton("粘贴")
         paste_btn.clicked.connect(self.pasteText)
         
@@ -156,6 +167,7 @@ class AIPolishWindow(QDialog):
         btn_layout.addWidget(self.stop_btn)
         btn_layout.addWidget(paste_btn)
         btn_layout.addWidget(clear_btn)
+        btn_layout.addStretch()
         
         input_layout.addLayout(btn_layout)
         
@@ -169,8 +181,6 @@ class AIPolishWindow(QDialog):
         self.output_text.setPlaceholderText("润色/翻译结果将显示在这里...")
         self.output_text.setReadOnly(True)
         self.output_text.setLineWrapMode(QPlainTextEdit.WidgetWidth)
-        self.output_text.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
-        self.output_text.document().setMaximumBlockCount(0)  # 不限制块数量
         output_layout.addWidget(self.output_text)
         
         # 结果操作按钮
@@ -179,22 +189,27 @@ class AIPolishWindow(QDialog):
         copy_btn = QPushButton("复制结果")
         copy_btn.clicked.connect(self.copyResult)
         
-        apply_btn = QPushButton("应用到主窗口")
+        apply_btn = QPushButton("应用到翻译窗口")
         apply_btn.clicked.connect(self.applyToMainWindow)
+        
+        back_btn = QPushButton("返回翻译")
+        back_btn.clicked.connect(self.backToTranslate)
         
         result_btn_layout.addWidget(copy_btn)
         result_btn_layout.addWidget(apply_btn)
+        result_btn_layout.addWidget(back_btn)
+        result_btn_layout.addStretch()
         
         output_layout.addLayout(result_btn_layout)
         
         splitter.addWidget(output_group)
         
-        # 设置初始比例
+        # 输入输出框高度相等
         splitter.setSizes([300, 300])
         
-        main_layout.addWidget(splitter)
+        main_layout.addWidget(splitter, 1)
         
-        # 连接目标语言变化的信号
+        # 连接信号
         self.target_lang_combo.currentIndexChanged.connect(self.onTargetLangChanged)
     
     def connectSignals(self):
@@ -324,6 +339,12 @@ class AIPolishWindow(QDialog):
         # 处理文本
         processed_text, need_full_replace = self.text_handler.handle_incoming_text(text)
         
+        # 额外过滤XML标签
+        processed_text = self._filter_xml_tags(processed_text)
+        
+        # 处理多余的回车
+        processed_text = self._normalize_newlines(processed_text)
+        
         # 更新UI
         if need_full_replace or not self.output_text.toPlainText():
             # 完全替换
@@ -347,6 +368,24 @@ class AIPolishWindow(QDialog):
         # 滚动到底部
         scrollbar = self.output_text.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
+    
+    def _filter_xml_tags(self, text):
+        """过滤掉XML标签"""
+        # 移除<text>和</text>标签
+        text = re.sub(r'<text>|</text>', '', text)
+        # 移除可能的其他XML标签
+        text = re.sub(r'<[^>]+>', '', text)
+        return text
+    
+    def _normalize_newlines(self, text):
+        """规范化换行符，避免多余的回车"""
+        # 特别处理思考标签后的回车
+        text = re.sub(r'\s*\n+', '', text, flags=re.DOTALL)
+        
+        # 将连续的2个以上换行符替换为1个换行符
+        text = re.sub(r'\n{2,}', '\n', text)
+        
+        return text
     
     def onTranslationFinished(self):
         """翻译/润色完成"""
@@ -401,22 +440,15 @@ class AIPolishWindow(QDialog):
         text = self.output_text.toPlainText()
         if text and self.parent:
             try:
-                # 假设父窗口有output_text属性
+                # 将结果应用到主窗口的输出框
                 self.parent.output_text.setText(text)
-                QMessageBox.information(self, "提示", "已应用到主窗口")
-                self.accept()  # 关闭对话框
+                QMessageBox.information(self, "提示", "已应用到翻译窗口")
+                # 切换回翻译页面
+                self.backToTranslate()
             except AttributeError:
-                QMessageBox.warning(self, "错误", "无法应用到主窗口")
+                QMessageBox.warning(self, "错误", "无法应用到翻译窗口")
     
-    def closeEvent(self, event):
-        """关闭窗口时处理"""
-        if self.text_handler.is_translating:
-            result = QMessageBox.question(
-                self, "确认", "翻译/润色任务正在进行，确定要关闭吗？",
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.No
-            )
-            if result == QMessageBox.Yes:
-                self.text_handler.is_translating = False
-                event.accept()
-            else:
-                event.ignore()
+    def backToTranslate(self):
+        """返回翻译页面"""
+        if self.parent and hasattr(self.parent, 'showTranslatePage'):
+            self.parent.showTranslatePage()
