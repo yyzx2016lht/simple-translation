@@ -377,15 +377,17 @@ class AIPolishWidget(QWidget):  # 修改为QWidget
         text = re.sub(r'<[^>]+>', '', text)
         return text
     
+
     def _normalize_newlines(self, text):
-        """规范化换行符，避免多余的回车"""
-        # 特别处理思考标签后的回车
-        text = re.sub(r'\s*\n+', '', text, flags=re.DOTALL)
+        """规范化换行符，保留原始格式，但处理思考标签后的换行"""
+        # 处理思考标签相关的换行问题
+        text = process_thinking_tags(text)
         
-        # 将连续的2个以上换行符替换为1个换行符
-        text = re.sub(r'\n{2,}', '\n', text)
+        # 将连续的3个以上换行符替换为2个换行符(保留段落间距)
+        text = re.sub(r'\n{3,}', '\n\n', text)
         
         return text
+
     
     def onTranslationFinished(self):
         """翻译/润色完成"""

@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
 from ui.polish.window import AIPolishWidget  # 使用新类名
 from config import LANGUAGES, DEFAULT_SOURCE_LANG, DEFAULT_TARGET_LANG
 from worker import TranslateWorker
+from .settings import SettingsWidget
 
 
 class TranslatorApp(QMainWindow):
@@ -37,10 +38,17 @@ class TranslatorApp(QMainWindow):
         self.translate_action.triggered.connect(self.showTranslatePage)
         toolbar.addAction(self.translate_action)
         
-        # AI润色按钮修改为切换页面
-        self.polish_action = QAction("AI润色", self)
+        # AI翻译按钮修改为切换页面
+        self.polish_action = QAction("AI翻译", self)
         self.polish_action.triggered.connect(self.showPolishPage)
         toolbar.addAction(self.polish_action)
+        
+        # 创建设置按钮
+        self.settings_btn = QAction("设置", self)
+        self.settings_btn.triggered.connect(self.showSettingsPage)
+        toolbar.addAction(self.settings_btn)
+
+
         
         self.addToolBar(toolbar)
         
@@ -67,8 +75,14 @@ class TranslatorApp(QMainWindow):
         # 创建AI润色页面
         self.polish_page = None  # 初始为None，第一次访问时创建
         
+        # 初始化设置页面
+        self.settings_widget = SettingsWidget(self)
+        
         # 添加翻译页面到堆叠组件
         self.stack.addWidget(self.translate_page)
+        
+        # 将设置页面添加到堆叠组件
+        self.stack.addWidget(self.settings_widget)
         
         # 添加堆叠组件到主布局
         main_layout.addWidget(self.stack)
@@ -162,7 +176,12 @@ class TranslatorApp(QMainWindow):
         self.polish_action.setEnabled(False)
         self.setWindowTitle("现代翻译器 - AI润色")
     
-    # 删除原来的openAIPolish方法，已由showPolishPage替代
+    def showSettingsPage(self):
+        """显示设置页面"""
+        self.stack.setCurrentWidget(self.settings_widget)
+        self.translate_action.setEnabled(True)
+        self.polish_action.setEnabled(True)
+        self.setWindowTitle("现代翻译器 - 设置")
     
     def _setupLanguageControls(self, main_layout):
         """设置语言选择控件"""
