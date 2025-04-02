@@ -14,67 +14,75 @@ class WorkerSignals(QObject):
 
 # --- 翻译工作线程 ---
 class TranslateWorker(QRunnable):
+    """处理翻译操作的工作线程"""
+    
     def __init__(self, lines, source_lang, target_lang):
+        """初始化工作线程"""
         super().__init__()
         self.lines = lines
         self.source_lang = source_lang
         self.target_lang = target_lang
         self.signals = WorkerSignals()
+        self._stop_flag = False
+        
+    def stop(self):
+        """设置停止标志"""
+        self._stop_flag = True
+        # 如果需要立即中断请求，可以尝试关闭会话
+        try:
+            from config.config import session
+            # 创建新会话以中断正在进行的请求
+            # 注意：这可能导致其他操作也被中断
+            from config.config_manager import config_manager
+            config_manager.init_session()
+        except Exception as e:
+            print(f"中断请求时出错: {e}")
         
     @Slot()
     def run(self):
+        """执行翻译任务"""
         try:
-            start_time = time.time()
-            
-            # 单行文本直接翻译
+            # 检查是否单行翻译
             if len(self.lines) == 1:
-                translated_text = translate_single(
-                    self.lines[0], 
-                    self.source_lang, 
-                    self.target_lang
-                )
-                elapsed = time.time() - start_time
-                self.signals.finished.emit(f"{translated_text}|{elapsed:.2f}")
-            
-            # 多行文本使用并行处理
+                # 检查停止标志
+                if self._stop_flag:
+                    return
+                    
+                # 单行翻译
+                start_time = time.time()
+                result = translate_single(self.lines[0], self.source_lang, self.target_lang)
+                elapsed = round(time.time() - start_time, 2)
+                self.signals.finished.emit(f"{result}|{elapsed}")
             else:
-                # 动态调整批次大小
-                batch_size = min(MAX_BATCH_SIZE, max(5, len(self.lines) // 3))
-                batches = [self.lines[i:i+batch_size] for i in range(0, len(self.lines), batch_size)]
+                # 批量翻译
+                total_lines = len(self.lines)
+                translated_results = []
                 
-                # 创建并行执行器
-                with concurrent.futures.ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(batches))) as executor:
-                    # 提交所有批次的翻译任务
-                    future_to_batch = {
-                        executor.submit(
-                            translate_batch,
-                            batch, 
-                            self.source_lang, 
-                            self.target_lang
-                        ): i for i, batch in enumerate(batches)
-                    }
-                    
-                    # 收集结果（保持顺序）
-                    all_results = [None] * len(batches)
-                    completed = 0
-                    
-                    for future in concurrent.futures.as_completed(future_to_batch):
-                        batch_index = future_to_batch[future]
-                        try:
-                            results = future.result()
-                            all_results[batch_index] = results
-                            completed += 1
-                            self.signals.progress.emit(int(completed * 100 / len(batches)))
-                        except Exception as exc:
-                            print(f"批次 {batch_index} 失败: {exc}")
-                            raise exc
+                # 分批处理
+                batch_size = MAX_BATCH_SIZE
+                start_time = time.time()
                 
-                # 展平结果
-                translated_lines = [line for batch in all_results for line in batch]
-                final_translation = "\n".join(translated_lines)
-                elapsed = time.time() - start_time
-                self.signals.finished.emit(f"{final_translation}|{elapsed:.2f}")
-            
+                for i in range(0, total_lines, batch_size):
+                    # 检查停止标志
+                    if self._stop_flag:
+                        return
+                        
+                    batch = self.lines[i:i+batch_size]
+                    percent = min(100, int((i / total_lines) * 100))
+                    self.signals.progress.emit(percent)
+                    
+                    try:
+                        batch_result = translate_batch(batch, self.source_lang, self.target_lang)
+                        translated_results.extend(batch_result)
+                    except Exception as e:
+                        error_msg = get_friendly_error_message(e)
+                        self.signals.error.emit(f"批量翻译错误 ({i}/{total_lines}): {error_msg}")
+                        return
+                
+                elapsed = round(time.time() - start_time, 2)
+                combined_text = "\n".join(translated_results)
+                self.signals.finished.emit(f"{combined_text}|{elapsed}")
+                
         except Exception as e:
             error_msg = get_friendly_error_message(e)
             self.signals.error.emit(error_msg)

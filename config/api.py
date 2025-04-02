@@ -1,7 +1,9 @@
 """翻译API接口封装"""
 import json
 import requests
-from config.config import session, SINGLE_TRANSLATE_URL, BATCH_TRANSLATE_URL, TIMEOUT_SINGLE, TIMEOUT_BATCH
+import os
+# 修改为直接使用config_manager，不通过config.py
+from config.config_manager import config_manager
 
 def calculate_timeout(texts):
     """根据文本量动态计算超时时间"""
@@ -11,16 +13,29 @@ def calculate_timeout(texts):
     num_lines = len(texts)
     
     # 基础超时设置
-    base_timeout = 1  # 最小超时1秒
+    base_timeout = 5  # 最小超时5秒，从1秒增加到5秒
     
     # 根据字符数和行数计算额外超时
-    # 每1000个字符增加1秒超时
-    char_timeout = (total_chars / 1000) * 1
-    # 每10行增加0.3秒超时
-    line_timeout = (num_lines / 10) * 0.3
+    # 每1000个字符增加1.5秒超时，从1秒增加到1.5秒
+    char_timeout = (total_chars / 1000) * 1.5
+    # 每10行增加0.5秒超时，从0.3秒增加到0.5秒
+    line_timeout = (num_lines / 10) * 0.5
     
-    # 计算总超时，最小1秒，最大10秒
-    timeout = min(10.0, max(base_timeout, base_timeout + char_timeout + line_timeout))
+    # 计算总超时，最小5秒，最大30秒
+    # 将最大超时从10秒增加到30秒
+    timeout = min(30.0, max(base_timeout, base_timeout + char_timeout + line_timeout))
+    
+    # 为第一次请求额外增加超时时间（首次连接往往需要更长时间）
+    first_request_flag = os.path.join(os.environ.get('TEMP', '.'), '.translator_first_req')
+    if not os.path.exists(first_request_flag):
+        # 首次请求超时翻倍
+        timeout = timeout * 2
+        # 创建标记文件
+        try:
+            with open(first_request_flag, 'w') as f:
+                f.write('1')
+        except:
+            pass
     
     return timeout
 
@@ -38,19 +53,37 @@ def translate_single(text, source_lang, target_lang):
         "text": text
     }
     
-    response = session.post(
-        SINGLE_TRANSLATE_URL, 
-        headers=headers, 
-        json=payload, 
-        timeout=TIMEOUT_SINGLE
-    )
-    response.raise_for_status()
+    # 为较长文本动态增加超时时间
+    dynamic_timeout = max(10, len(text) / 500)
     
-    result_data = response.json()
-    if "result" in result_data:
-        return result_data["result"]
-    else:
-        raise ValueError("API响应格式错误，缺少 'result' 字段")
+    # 为首次请求增加超时时间
+    first_request_flag = os.path.join(os.environ.get('TEMP', '.'), '.translator_first_req')
+    if not os.path.exists(first_request_flag):
+        dynamic_timeout = dynamic_timeout * 2
+    
+    try:
+        # 直接使用config_manager的session和URL
+        response = config_manager.session.post(
+            config_manager.SINGLE_TRANSLATE_URL,  # 直接使用config_manager的URL
+            headers=headers, 
+            json=payload, 
+            timeout=dynamic_timeout
+        )
+        response.raise_for_status()
+        
+        result_data = response.json()
+        if "result" in result_data:
+            return result_data["result"]
+        else:
+            raise ValueError("API响应格式错误，缺少 'result' 字段")
+    except requests.exceptions.Timeout:
+        # 超时情况下，创建首次请求标记文件（以避免重复首次请求检测）
+        try:
+            with open(first_request_flag, 'w') as f:
+                f.write('1')
+        except:
+            pass
+        raise
 
 def translate_batch(texts, source_lang, target_lang):
     """翻译多行文本"""
@@ -69,8 +102,9 @@ def translate_batch(texts, source_lang, target_lang):
     # 使用动态计算的超时时间而不是固定值
     dynamic_timeout = calculate_timeout(texts)
     
-    response = session.post(
-        BATCH_TRANSLATE_URL,
+    # 直接使用config_manager的session和URL
+    response = config_manager.session.post(
+        config_manager.BATCH_TRANSLATE_URL,  # 直接使用config_manager的URL
         headers=headers,
         json=payload,
         timeout=dynamic_timeout  # 使用动态超时

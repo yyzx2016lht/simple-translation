@@ -31,8 +31,18 @@ class TranslatePlainTextEdit(QPlainTextEdit):
 
 
 class TranslatorApp(QMainWindow):
+    """主窗口类"""
+    
     def __init__(self):
         super().__init__()
+        
+        # 添加翻译停止标志
+        self.translation_stopped = False
+        
+        # 初始化线程池
+        self.threadpool = QThreadPool()
+        
+        # 初始化用户界面
         self.initUI()
         
     def initUI(self):
@@ -124,27 +134,42 @@ class TranslatorApp(QMainWindow):
         # --- 输入区域 ---
         self._setupInputArea(splitter)
         
-        # --- 翻译按钮部分 ---
-        translate_container = QWidget()
-        translate_layout = QHBoxLayout(translate_container)
-        translate_layout.setContentsMargins(0, 5, 0, 5)
-        
-        translate_layout.addStretch()
-        self.translate_btn = QPushButton("翻 译")
-        self.translate_btn.setMinimumWidth(120)
-        self.translate_btn.setMinimumHeight(30)
-        self.translate_btn.clicked.connect(self.translateText)
-        translate_layout.addWidget(self.translate_btn)
-        translate_layout.addStretch()
-        
-        page_layout.addWidget(splitter)
-        page_layout.addWidget(translate_container)
-        
         # --- 输出区域 ---
         self._setupOutputArea(splitter)
         
         # 设置分割器初始大小
         splitter.setSizes([int(self.height() * 0.5), int(self.height() * 0.5)])
+        
+        # 先添加分割器
+        page_layout.addWidget(splitter)
+        
+        # --- 翻译按钮部分（移到splitter后面）---
+        translate_container = QWidget()
+        translate_container.setObjectName("translate_container")
+        translate_layout = QHBoxLayout(translate_container)
+        translate_layout.setContentsMargins(0, 5, 0, 5)
+        
+        translate_layout.addStretch()
+        
+        # 翻译按钮
+        self.translate_btn = QPushButton("翻 译")
+        self.translate_btn.setMinimumWidth(120)
+        self.translate_btn.setMinimumHeight(30)
+        self.translate_btn.clicked.connect(self.translateText)
+        translate_layout.addWidget(self.translate_btn)
+        
+        # 停止按钮
+        self.stop_btn = QPushButton("停 止")
+        self.stop_btn.setMinimumWidth(120)
+        self.stop_btn.setMinimumHeight(30)
+        self.stop_btn.clicked.connect(self.stopTranslation)
+        self.stop_btn.setEnabled(False)  # 初始状态为禁用
+        translate_layout.addWidget(self.stop_btn)
+        
+        translate_layout.addStretch()
+        
+        # 然后添加按钮容器
+        page_layout.addWidget(translate_container)
         
         # 设置快捷键
         self.input_text.translateRequested.connect(self.translateText)
@@ -357,9 +382,11 @@ class TranslatorApp(QMainWindow):
         self.output_text.setPlainText("翻译中...")  # 改为setPlainText
         self.statusBar.showMessage("正在翻译...")
         self.translate_btn.setEnabled(False)
+        self.stop_btn.setEnabled(True)  # 启用停止按钮
         
         # 创建工作线程
         worker = TranslateWorker(lines, source_lang, target_lang)
+        self.current_worker = worker  # 保存当前工作线程
         worker.signals.finished.connect(self.handleTranslateFinished)
         worker.signals.error.connect(self.handleTranslateError)
         worker.signals.progress.connect(self.handleTranslateProgress)
@@ -367,20 +394,57 @@ class TranslatorApp(QMainWindow):
         # 启动线程
         self.threadpool.start(worker)
         
+    def stopTranslation(self):
+        """停止正在进行的翻译请求"""
+        try:
+            # 设置标志表示是手动停止的翻译
+            self.translation_stopped = True
+            
+            # 设置停止标志
+            if hasattr(self, 'current_worker') and self.current_worker:
+                self.current_worker.stop()
+                
+            # 更新界面状态
+            self.translate_btn.setEnabled(True)
+            self.stop_btn.setEnabled(False)
+            self.statusBar.showMessage("翻译已取消")
+            self.output_text.setPlainText("翻译已取消")
+            
+            # 断开当前工作线程的错误信号连接
+            if hasattr(self, 'current_worker') and self.current_worker:
+                try:
+                    self.current_worker.signals.error.disconnect()
+                except:
+                    pass
+            
+        except Exception as e:
+            print(f"停止翻译时出错: {e}")
+        
     def handleTranslateFinished(self, result_with_time):
         parts = result_with_time.split("|")
         translation = parts[0]
         elapsed = parts[1]
         
-        self.output_text.setPlainText(translation)  # 改为setPlainText
+        self.output_text.setPlainText(translation)
         self.statusBar.showMessage(f"翻译完成，耗时: {elapsed}秒")
         self.translate_btn.setEnabled(True)
-        
+        self.stop_btn.setEnabled(False)  # 禁用停止按钮
+        self.current_worker = None
+
     def handleTranslateError(self, error_msg):
+        # 检查是否是用户手动停止翻译导致的错误
+        if hasattr(self, 'translation_stopped') and self.translation_stopped:
+            # 如果是手动停止的，不显示错误消息
+            self.translation_stopped = False
+            return
+            
+        # 如果不是手动停止，显示错误消息
         QMessageBox.critical(self, "错误", error_msg)
         self.output_text.clear()
         self.statusBar.showMessage("翻译失败")
         self.translate_btn.setEnabled(True)
+        self.stop_btn.setEnabled(False)
+        self.current_worker = None
         
     def handleTranslateProgress(self, progress):
         self.statusBar.showMessage(f"翻译进度: {progress}%")

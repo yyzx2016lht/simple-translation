@@ -3,6 +3,8 @@ import os
 import json
 import requests
 import sys
+import threading
+
 class ConfigManager:
     """配置管理器单例类"""
     _instance = None
@@ -70,13 +72,53 @@ class ConfigManager:
     
     def init_session(self):
         """初始化网络会话"""
-        adapter = requests.adapters.HTTPAdapter(
-            pool_connections=10,
-            pool_maxsize=20,
-            max_retries=2
-        )
-        self.session.mount('http://', adapter)
-        self.session.mount('https://', adapter)
+        try:
+            print("初始化网络会话...")
+            
+            # 创建带更多重试和更长超时的适配器
+            adapter = requests.adapters.HTTPAdapter(
+                pool_connections=10,
+                pool_maxsize=20,
+                max_retries=3  # 增加重试次数
+            )
+            self.session = requests.Session()
+            self.session.mount('http://', adapter)
+            self.session.mount('https://', adapter)
+            
+            # 设置默认超时 (连接超时, 读取超时)
+            self.session.timeout = (10, 30)  # 10秒连接超时，30秒读取超时
+            
+            # 获取并设置token
+            token = self.config.get("token", "").strip()
+            if token:
+                self.session.headers.update({"Authorization": token})
+                
+            # 预热连接 - 发送一个HEAD请求
+            self._warm_up_connection()
+        except Exception as e:
+            print(f"初始化网络会话失败: {str(e)}")
+            # 确保session总是存在
+            self.session = requests.Session()
+
+    def _warm_up_connection(self):
+        """预热连接 - 在后台线程中进行，不阻塞UI"""
+        def do_warmup():
+            try:
+                # 尝试连接服务器
+                self.session.head(
+                    self.BASE_URL, 
+                    timeout=(5, 5),  # 短超时，仅用于预热
+                    allow_redirects=False
+                )
+                print("服务器连接预热完成")
+            except Exception as e:
+                # 忽略错误，这只是预热
+                print(f"服务器连接预热失败: {e}")
+        
+        # 在后台线程中进行预热
+        thread = threading.Thread(target=do_warmup)
+        thread.daemon = True
+        thread.start()
     
     def update_urls(self):
         """更新 API URLs，不再在URL中添加token"""

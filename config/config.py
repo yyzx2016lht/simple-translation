@@ -15,8 +15,8 @@ session = config_manager.get_session()
 # --- 性能配置 ---
 MAX_BATCH_SIZE = 40  # 每批处理的最大行数
 MAX_WORKERS = 10     # 最大并行工作线程数
-TIMEOUT_SINGLE = 1   # 单行请求超时（秒）
-TIMEOUT_BATCH = 1   # 批量请求基础超时（秒）
+TIMEOUT_SINGLE = 10  # 单行请求超时（秒），从1秒增加到10秒
+TIMEOUT_BATCH = 5    # 批量请求基础超时（秒），从1秒增加到5秒
 
 # --- 语言配置 ---
 LANGUAGES = {
