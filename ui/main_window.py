@@ -1,16 +1,33 @@
 """主窗口界面"""
 import pyperclip
-from PySide6.QtCore import Qt, QThreadPool, QSize, QEvent
+from PySide6.QtCore import Qt, QThreadPool, QSize, QEvent, Signal
 from PySide6.QtGui import QFont, QAction
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-    QLabel, QPushButton, QComboBox, QTextEdit, QFrame, 
-    QSplitter, QMessageBox, QStatusBar, QToolBar, QStackedWidget
+    QLabel, QPushButton, QComboBox, QPlainTextEdit, QFrame,  # 改为QPlainTextEdit
+    QSplitter, QMessageBox, QStatusBar, QToolBar, QStackedWidget, QSizePolicy
 )
-from ui.polish.window import AIPolishWidget  # 使用新类名
-from config import LANGUAGES, DEFAULT_SOURCE_LANG, DEFAULT_TARGET_LANG
-from worker import TranslateWorker
+from ui.ai_translation.window import AIPolishWidget  # 使用新类名
+from config.config import LANGUAGES, DEFAULT_SOURCE_LANG, DEFAULT_TARGET_LANG
+from translator.NMT_translator import TranslateWorker
 from .settings import SettingsWidget
+from ui.ai_translation.utils import is_ollama_available
+
+class TranslatePlainTextEdit(QPlainTextEdit):
+    """支持Enter键触发翻译，Shift+Enter换行的纯文本输入框"""
+    translateRequested = Signal()
+    
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            if event.modifiers() & Qt.ShiftModifier:
+                # Shift+Enter插入换行
+                super().keyPressEvent(event)
+            else:
+                # Enter触发翻译
+                self.translateRequested.emit()
+        else:
+            # 其他按键正常处理
+            super().keyPressEvent(event)
 
 
 class TranslatorApp(QMainWindow):
@@ -20,18 +37,13 @@ class TranslatorApp(QMainWindow):
         
     def initUI(self):
         # 设置窗口基本属性
-        self.setWindowTitle("现代翻译器")
+        self.setWindowTitle("简易翻译器")
         self.setMinimumSize(700, 500)
         
         # 创建工具栏
         toolbar = QToolBar("主工具栏")
         toolbar.setMovable(False)
         toolbar.setIconSize(QSize(16, 16))
-        
-        # 关于按钮
-        about_action = QAction("关于", self)
-        about_action.triggered.connect(self.showAbout)
-        toolbar.addAction(about_action)
         
         # 创建页面切换按钮
         self.translate_action = QAction("文本翻译", self)
@@ -47,8 +59,12 @@ class TranslatorApp(QMainWindow):
         self.settings_btn = QAction("设置", self)
         self.settings_btn.triggered.connect(self.showSettingsPage)
         toolbar.addAction(self.settings_btn)
-
-
+        
+   
+        # 关于按钮放在最右侧
+        about_action = QAction("关于", self)
+        about_action.triggered.connect(self.showAbout)
+        toolbar.addAction(about_action)
         
         self.addToolBar(toolbar)
         
@@ -72,7 +88,7 @@ class TranslatorApp(QMainWindow):
         self.translate_page = QWidget()
         self.setupTranslatePage(self.translate_page)
         
-        # 创建AI润色页面
+        # 创建AI翻译页面
         self.polish_page = None  # 初始为None，第一次访问时创建
         
         # 初始化设置页面
@@ -131,11 +147,11 @@ class TranslatorApp(QMainWindow):
         splitter.setSizes([int(self.height() * 0.5), int(self.height() * 0.5)])
         
         # 设置快捷键
-        self.input_text.installEventFilter(self)
+        self.input_text.translateRequested.connect(self.translateText)
     
     def setupPolishPage(self):
-        """懒加载并设置AI润色页面"""
-        # 如果润色页面已经存在，直接返回
+        """懒加载并设置AI翻译页面"""
+        # 如果翻译页面已经存在，直接返回
         if self.polish_page is not None:
             return
             
@@ -146,7 +162,7 @@ class TranslatorApp(QMainWindow):
             if initial_text == "翻译中...":
                 initial_text = ""
         
-        # 创建润色组件
+        # 创建翻译组件
         self.polish_page = AIPolishWidget(self, initial_text)
         
         # 添加到堆叠组件
@@ -155,33 +171,41 @@ class TranslatorApp(QMainWindow):
     def showTranslatePage(self):
         """显示翻译页面"""
         self.stack.setCurrentWidget(self.translate_page)
-        self.translate_action.setEnabled(False)
-        self.polish_action.setEnabled(True)
-        self.setWindowTitle("现代翻译器 - 文本翻译")
         
+        # 确保工具栏按钮正确连接
+        self.translate_action.triggered.disconnect()
+        self.translate_action.triggered.connect(self.showTranslatePage)
+        self.polish_action.triggered.disconnect()
+        self.polish_action.triggered.connect(self.showPolishPage)
+    
     def showPolishPage(self):
-        """显示AI润色页面"""
-        # 确保润色页面已设置
-        self.setupPolishPage()
+        """显示AI翻译页面"""
+
         
-        # 更新润色页面的输入文本
-        if hasattr(self, 'output_text') and hasattr(self.polish_page, 'input_text'):
-            output_text = self.output_text.toPlainText()
-            if output_text and output_text != "翻译中...":
-                self.polish_page.input_text.setPlainText(output_text)
-                
-        # 显示润色页面
-        self.stack.setCurrentWidget(self.polish_page)
-        self.translate_action.setEnabled(True)
-        self.polish_action.setEnabled(False)
-        self.setWindowTitle("现代翻译器 - AI润色")
+        if not is_ollama_available():
+            reply = QMessageBox.warning(
+                self,
+                "Ollama检测失败",
+                "未能检测到Ollama程序。\n\n"
+                "AI翻译功能需要安装并运行Ollama程序。\n"
+                "是否仍要继续进入AI翻译页面？",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply == QMessageBox.No:
+                return
+        
+        # 创建AI翻译窗口组件
+        self.polish_widget = AIPolishWidget(self)
+        self.stack.addWidget(self.polish_widget)
+        self.stack.setCurrentWidget(self.polish_widget)
     
     def showSettingsPage(self):
         """显示设置页面"""
         self.stack.setCurrentWidget(self.settings_widget)
         self.translate_action.setEnabled(True)
         self.polish_action.setEnabled(True)
-        self.setWindowTitle("现代翻译器 - 设置")
+        self.setWindowTitle("简易翻译器 - 设置")
     
     def _setupLanguageControls(self, main_layout):
         """设置语言选择控件"""
@@ -261,9 +285,14 @@ class TranslatorApp(QMainWindow):
         input_layout.addWidget(input_header)
         
         # 输入文本框
-        self.input_text = QTextEdit()
+        self.input_text = TranslatePlainTextEdit()  # 改用自定义的纯文本框
         self.input_text.setPlaceholderText("在此输入要翻译的文本...")
         input_layout.addWidget(self.input_text)
+        
+        # 添加快捷键提示
+        shortcut_tip = QLabel("提示: 按Enter开始翻译，按Shift+Enter换行")
+        shortcut_tip.setStyleSheet("color: #666; font-size: 10px;")
+        input_layout.addWidget(shortcut_tip)
         
         # 添加输入区域到父容器
         parent.addWidget(input_container)
@@ -297,24 +326,14 @@ class TranslatorApp(QMainWindow):
         output_layout.addWidget(output_header)
         
         # 输出文本框
-        self.output_text = QTextEdit()
+        self.output_text = QPlainTextEdit()  # 改为QPlainTextEdit
         self.output_text.setPlaceholderText("翻译结果将显示在这里...")
         self.output_text.setReadOnly(True)
         output_layout.addWidget(self.output_text)
         
         # 添加输出区域到父容器
         parent.addWidget(output_container)
-        
-    def eventFilter(self, source, event):
-        # 检查事件是否是键盘事件
-        if event.type() == QEvent.KeyPress:
-            # 处理 Ctrl+Enter 快捷键
-            if (source is self.input_text and 
-                event.key() == Qt.Key_Return and 
-                event.modifiers() == Qt.ControlModifier):
-                self.translateText()
-                return True
-        return super().eventFilter(source, event)
+
         
     def translateText(self):
         source_text = self.input_text.toPlainText().strip()
@@ -328,11 +347,6 @@ class TranslatorApp(QMainWindow):
             QMessageBox.warning(self, "提示", "请输入要翻译的文本。")
             return
             
-        if source_lang == target_lang and source_lang != "auto":
-            QMessageBox.warning(self, "提示", "源语言和目标语言相同。")
-            self.output_text.setText(source_text)
-            return
-            
         # 处理文本分行
         lines = [line for line in source_text.split('\n') if line.strip()]
         if not lines:
@@ -340,7 +354,7 @@ class TranslatorApp(QMainWindow):
             return
             
         # 显示"翻译中..."提示
-        self.output_text.setText("翻译中...")
+        self.output_text.setPlainText("翻译中...")  # 改为setPlainText
         self.statusBar.showMessage("正在翻译...")
         self.translate_btn.setEnabled(False)
         
@@ -358,7 +372,7 @@ class TranslatorApp(QMainWindow):
         translation = parts[0]
         elapsed = parts[1]
         
-        self.output_text.setText(translation)
+        self.output_text.setPlainText(translation)  # 改为setPlainText
         self.statusBar.showMessage(f"翻译完成，耗时: {elapsed}秒")
         self.translate_btn.setEnabled(True)
         
@@ -421,6 +435,6 @@ class TranslatorApp(QMainWindow):
         
     def showAbout(self):
         QMessageBox.about(self, "关于", 
-                         "现代翻译器 v2.0\n\n"
-                         "一个简单而美观的翻译应用。\n"
-                         "使用PySide6(Qt)构建，支持多种语言翻译。")
+                         "简易翻译器 v2.0\n\n"
+                         "调用Mtranserver服务器实现翻译功能\n"
+                         "支持Ollama部署AI模型进行翻译，支持多种语言对齐。\n")

@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
     QPushButton, QFormLayout, QGroupBox, QMessageBox
 )
 
-from config_manager import config_manager
+from config.config_manager import config_manager
 
 class SettingsWidget(QWidget):
     """设置界面组件"""
