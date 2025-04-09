@@ -57,16 +57,19 @@ class TranslatorApp(QMainWindow):
         
         # 创建页面切换按钮
         self.translate_action = QAction("文本翻译", self)
+        self.translate_action.setCheckable(True)  # 添加这行
         self.translate_action.triggered.connect(self.showTranslatePage)
         toolbar.addAction(self.translate_action)
         
         # AI翻译按钮修改为切换页面
         self.polish_action = QAction("AI翻译", self)
+        self.polish_action.setCheckable(True)  # 添加这行
         self.polish_action.triggered.connect(self.showPolishPage)
         toolbar.addAction(self.polish_action)
         
         # 创建设置按钮
         self.settings_btn = QAction("设置", self)
+        self.settings_btn.setCheckable(True)  # 添加这行
         self.settings_btn.triggered.connect(self.showSettingsPage)
         toolbar.addAction(self.settings_btn)
         
@@ -118,6 +121,15 @@ class TranslatorApp(QMainWindow):
         
         # 设置线程池
         self.threadpool = QThreadPool()
+        
+        # 添加样式表使选中按钮更明显
+        self.setStyleSheet("""
+            QToolBar QAction:checked { 
+                background-color: #007bff; 
+                color: white;
+                border-radius: 4px;
+            }
+        """)
         
     def setupTranslatePage(self, page):
         """设置翻译页面"""
@@ -197,6 +209,11 @@ class TranslatorApp(QMainWindow):
         """显示翻译页面"""
         self.stack.setCurrentWidget(self.translate_page)
         
+        # 更新按钮状态
+        self.translate_action.setChecked(True)
+        self.polish_action.setChecked(False)
+        self.settings_btn.setChecked(False)
+        
         # 确保工具栏按钮正确连接
         self.translate_action.triggered.disconnect()
         self.translate_action.triggered.connect(self.showTranslatePage)
@@ -205,14 +222,14 @@ class TranslatorApp(QMainWindow):
     
     def showPolishPage(self):
         """显示AI翻译页面"""
-
         
         if not is_ollama_available():
             reply = QMessageBox.warning(
                 self,
                 "Ollama检测失败",
-                "未能检测到Ollama程序。\n\n"
-                "AI翻译功能需要安装并运行Ollama程序。\n"
+                "未能检测到Ollama程序。<br><br>"
+                "AI翻译功能需要安装并运行Ollama程序。<br>"
+                "请前往官网下载：<a href='https://ollama.com/'>https://ollama.com/</a><br><br>"
                 "是否仍要继续进入AI翻译页面？",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No
@@ -220,6 +237,10 @@ class TranslatorApp(QMainWindow):
             if reply == QMessageBox.No:
                 return
         
+        # 更新按钮状态
+        self.translate_action.setChecked(False)
+        self.polish_action.setChecked(True)
+        self.settings_btn.setChecked(False)
         # 创建AI翻译窗口组件
         self.polish_widget = AIPolishWidget(self)
         self.stack.addWidget(self.polish_widget)
@@ -228,9 +249,14 @@ class TranslatorApp(QMainWindow):
     def showSettingsPage(self):
         """显示设置页面"""
         self.stack.setCurrentWidget(self.settings_widget)
+        
+        # 更新按钮状态
+        self.translate_action.setChecked(False)
+        self.polish_action.setChecked(False)
+        self.settings_btn.setChecked(True)
+        
         self.translate_action.setEnabled(True)
         self.polish_action.setEnabled(True)
-        self.setWindowTitle("简易翻译器 - 设置")
     
     def _setupLanguageControls(self, main_layout):
         """设置语言选择控件"""

@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPlainTextEdit,  # 改为QPlainTextEdit
     QPushButton, QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox,
     QCheckBox, QFormLayout, QMessageBox, QGroupBox, QSplitter, 
-    QApplication, QSizePolicy
+    QApplication, QSizePolicy, QMainWindow
 )
 
 from translator.ollama_translator import OllamaTranslator
@@ -247,19 +247,20 @@ class AIPolishWidget(QWidget):
                 reply = QMessageBox.warning(
                     self, 
                     "模型加载错误", 
-                    "未能获取Ollama模型列表。\n\n"
-                    "可能原因:\n"
-                    "1. Ollama未安装或未运行\n"
-                    "2. 没有部署任何模型\n\n"
+                    "未能获取Ollama模型列表。<br><br>"
+                    "可能原因:<br>"
+                    "1. Ollama未安装或未运行<br>"
+                    "请前往官网下载软件：<a href='https://ollama.com/'>https://ollama.com/</a><br>"
+                    "2. 没有部署任何模型<br>"
+                    "请前往官网下载模型：<a href='https://ollama.com/search'>https://ollama.com/search</a><br><br>"
                     "是否继续使用AI翻译页面？",
                     QMessageBox.Yes | QMessageBox.No,
                     QMessageBox.No
                 )
-                
+
+                # 检查用户选择
                 if reply == QMessageBox.No:
-                    # 用户选择不继续，返回上一个页面
-                    if self.parent and hasattr(self.parent, 'showTranslatePage'):
-                        self.parent.showTranslatePage()
+                    # 用户选择不继续，返回主翻译页面
                     return
                 
                 # 用户选择继续，添加一个占位模型
